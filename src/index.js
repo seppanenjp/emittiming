@@ -164,13 +164,14 @@ function getColumn(columns, prefix) {
 function sendStatusMessages(statusMessages) {
   statusMessages
     .filter((s) => devices.includes(s.deviceId))
-    .map((statusMessage) =>
-      request.post({
-        url: `${NAVISPORT_DEVICE_URL}/${statusMessage.deviceId}/ping`,
-        headers: REQUEST_HEADERS,
-        json: true,
-        body: statusMessage
-      })
+    .map((statusMessage) => {
+        request.get({
+          url: `${NAVISPORT_DEVICE_URL}/${statusMessage.deviceId}/ping`,
+          headers: REQUEST_HEADERS
+          //   json: true,
+          //   body: statusMessage
+        });
+      }
     );
 }
 
