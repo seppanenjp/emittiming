@@ -1,11 +1,7 @@
-const app = require("express")();
-const http = require("http").createServer(app);
-const io = require("socket.io")(http);
 const request = require("request-promise");
 const dateFns = require("date-fns");
 const dateFnsTZ = require("date-fns-tz");
-const path = require("path");
-const _ = require("lodash");
+const { last } = require("lodash");
 
 const RowMode = {
   STATUS: "S",
@@ -30,27 +26,19 @@ const NAVISPORT_DEVICE_URL = "https://navisport.fi/api/devices";
 const REQUEST_HEADERS = {
   "Content-type": "application/json"
 };
-const PORT = process.env.PORT || 8080;
-
-http.listen(PORT, () => {
-  console.log("listening on *:" + PORT);
-});
 
 let registeredPassings = [];
 let registeredStatusMessages = [];
 
 let devices = [];
 
-// Show info if http request
-app.get("/", (req, res) => res.sendFile(path.join(__dirname + "/index.html")));
-
-app.get("/update-devices", (req, res) => {
-  updateDevices();
-  res.send({ message: "Devices updated" });
-});
-
 // First update devices
 updateDevices();
+
+// Update devices every 5min
+setInterval(() => {
+  updateDevices();
+}, 300000);
 
 /* - Update passings and status messages every second
  * - Get all messages which are under 30sec old
@@ -102,9 +90,9 @@ setInterval(async () => {
             });
           } else if (mode === RowMode.STATUS) {
             const code = getColumn(columns, Column.CODE);
-            const batteryLevel = _.last(
-              getColumn(columns, Column.BATTERY_LEVEL).split("-")
-            );
+            const batteryLevel = last(
+              getColumn(columns, Column.BATTERY_LEVEL)?.split("-") || []
+            ) || 0;
             statusMessages.push({
               deviceId,
               code,
@@ -116,7 +104,7 @@ setInterval(async () => {
 
         // Filter out passings and status messages which are handled before
         passings = passings.filter(
-          (p) => !registeredPassings.find((rp) => rp.chip === p.chip)
+          (p) => !registeredPassings.find((rp) => rp.chip === p.chip && rp.deviceId === p.deviceId)
         );
         statusMessages = statusMessages.filter(
           (m) =>
@@ -124,17 +112,16 @@ setInterval(async () => {
         );
 
         if (passings.length) {
-          passings.forEach((p) => {
-            registeredPassings.push(p);
-          });
+          passings.forEach((p) =>
+            registeredPassings.push(p)
+          );
           sendPassings(passings);
-          io.emit("passings", passings);
         }
 
         if (statusMessages.length) {
-          statusMessages.forEach((s) => {
-            registeredStatusMessages.push(s);
-          });
+          statusMessages.forEach((s) =>
+            registeredStatusMessages.push(s)
+          );
           sendStatusMessages(statusMessages);
         }
 
@@ -155,22 +142,20 @@ setInterval(async () => {
 
 function getColumn(columns, prefix) {
   const column = columns.find((c) => c.charAt(0) === prefix);
-  if (column) {
-    return column.substring(1);
-  }
-  return null;
+  return column ? column.substring(1) : null;
 }
 
 function sendStatusMessages(statusMessages) {
   statusMessages
     .filter((s) => devices.includes(s.deviceId))
-    .map((statusMessage) => {
-        request.get({
+    .map(async (statusMessage) => {
+        await request.get({
           url: `${NAVISPORT_DEVICE_URL}/${statusMessage.deviceId}/ping`,
           headers: REQUEST_HEADERS
           //   json: true,
           //   body: statusMessage
         });
+        console.log("Device status", statusMessages);
       }
     );
 }
@@ -185,7 +170,9 @@ function sendPassings(passings) {
         json: true,
         body
       })
-      .then((response) => console.log("response", response));
+      .then((response) => {
+        console.log("response", response);
+      });
   }
 }
 
